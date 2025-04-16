@@ -2,48 +2,80 @@ package main
 
 import (
 	"encoding/json"
-	"io"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
+	"strings"
+	"time"
 )
 
-type Response struct {
-	Message  string `json:"message"`
-	XResult  string `json:"x-result"`
-	XBody    string `json:"x-body"`
-}
+func main() {
 
-func enableCORS(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "x-test,ngrok-skip-browser-warning,Content-Type,Accept,Access-Control-Allow-Headers")
+	http.HandleFunc("/api/rv/", reverseHandler)
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+	http.HandleFunc("/", dateHandler)
 
-		handler(w, r)
+	port := "5000"
+	if p := os.Getenv("PORT"); p != "" {
+		port = p
+	}
+
+	log.Printf("Сервер запущен на порту %s", port)
+
+	err := http.ListenAndServe(":" + port, nil)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
-func resultHandler(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	defer r.Body.Close()
+func reverseHandler(w http.ResponseWriter, r *http.Request) {
+	prefix := "/api/rv/"
+	path := r.URL.Path
 
-	response := Response{
-		Message: "yaroslavkolsanov",
-		XResult: r.Header.Get("x-test"),
-		XBody:   string(body),
+	if !strings.HasPrefix(path, prefix) {
+		http.NotFound(w, r)
+		return
+	}
+	input := path[len(prefix):]
+	if input == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	matched, err := regexp.MatchString("^[a-z]+$", input)
+	if err != nil || !matched {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	reversed := reverseString(input)
+	fmt.Fprint(w, reversed)
+}
+
+func reverseString(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+
+func dateHandler(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+
+	expectedPath := "/" + now.Format("020106")
+	if r.URL.Path != expectedPath {
+		http.NotFound(w, r)
+		return
+	}
+
+	response := map[string]string{
+		"date":  now.Format("02-01-2006"),
+		"login": "yaroslavkolsanov",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-}
-
-func main() {
-	http.HandleFunc("/result4/", enableCORS(resultHandler))
-	log.Printf("Server starting on http://0.0.0.0:5000")
-	log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
 }
